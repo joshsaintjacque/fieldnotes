@@ -13,7 +13,7 @@ Field Notes is a dependency-free Chrome Manifest V3 new-tab extension. It provid
 
 Choose **Set location** to use browser geolocation or search for a city. The chosen location and its weather cache persist in `chrome.storage.local` across Chrome sessions. **Settings & data → Reset location** removes only the saved location and weather cache; it does not remove shortcuts, sidebar settings, Todoist connection, or snoozes.
 
-The Todoist connection is optional. Connecting lets the extension read today’s tasks, complete tasks, and move non-recurring tasks to tomorrow. **Snooze 1h** affects only the local New Tab view.
+The Todoist connection is optional. Connecting lets the extension read today’s tasks, complete tasks, and move non-recurring tasks to tomorrow. Field Notes saves the last confirmed Today response locally, so it can show your previous task list while it refreshes in the background. The status line notes when saved tasks may be stale. **Snooze 1h** affects only the local New Tab view.
 
 Chrome’s `topSites` API imports frequently visited sites only. It cannot read Chrome’s protected built-in New Tab tiles.
 

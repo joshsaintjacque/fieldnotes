@@ -9,6 +9,7 @@ The extension stores the following in `chrome.storage.local` for the active Chro
 - Shortcut names, URLs, sections, order, and sidebar width.
 - Your selected location, coordinates, and a cached weather response.
 - Todoist OAuth client registration data, access and refresh tokens, and the Todoist account time zone after you connect.
+- The last confirmed Todoist Today task response, its save time, and a local authentication epoch. This can include task titles, due details, and priority so Field Notes can show saved tasks while it refreshes. It does not include OAuth tokens.
 - Local Todoist snooze records. These contain an opaque task ID, due-state key, and expiry time.
 
 Chrome extension storage is not encrypted. Anyone who can access this Chrome profile may be able to access this data. The extension requests trusted-context-only storage access when Chrome supports it.
@@ -21,7 +22,7 @@ Chrome extension storage is not encrypted. Anyone who can access this Chrome pro
 
 ## Retention and deletion
 
-**Settings & data → Reset location** deletes only the location and weather cache. **Disconnect Todoist** deletes the Todoist connection. **Clear local data** removes shortcuts, location, weather cache, Todoist connection, snoozes, and sidebar width. You can also remove the extension in Chrome to remove its extension storage.
+**Settings & data → Reset location** deletes only the location and weather cache. **Disconnect Todoist** deletes the Todoist connection and saved Today tasks. **Clear local data** removes shortcuts, location, weather cache, Todoist connection, saved Today tasks, snoozes, and sidebar width. You can also remove the extension in Chrome to remove its extension storage.
 
 ## Chrome Web Store Limited Use
 
