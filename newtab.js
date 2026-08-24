@@ -511,6 +511,7 @@ async function writeTodoistTaskCache(tasks, authEpoch, request) {
 }
 
 const todoistTaskLoadIsCurrent = (request, authEpoch) => request === todoistTaskRequest && authEpoch === todoistActiveAuthEpoch;
+const todoistTaskRenderIsCurrent = async (request, authEpoch) => todoistTaskLoadIsCurrent(request, authEpoch) && await todoistAuthGet(TODOIST_AUTH_EPOCH_KEY, null) === authEpoch;
 
 function clearTodoistTaskSnapshot() {
   todoistTasks = [];
@@ -951,7 +952,7 @@ async function loadTodoistTasks({ retainCurrentTasks = todoistHasTaskSnapshot } 
   if (!authEpoch) return;
   const request = ++todoistTaskRequest;
   todoistActiveAuthEpoch = authEpoch;
-  const renderIsCurrent = async () => todoistTaskLoadIsCurrent(request, authEpoch) && await todoistAuthGet(TODOIST_AUTH_EPOCH_KEY, null) === authEpoch;
+  const renderIsCurrent = () => todoistTaskRenderIsCurrent(request, authEpoch);
   if (retainCurrentTasks && todoistHasTaskSnapshot && todoistTaskSnapshotAuthEpoch === authEpoch) {
     todoistTasksConfirmed = false;
     const source = todoistTaskSnapshotPersisted ? 'saved' : 'last fetched';
@@ -1096,6 +1097,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
       invalidateTodoistTaskLoads(authEpoch);
       setTodoistConnection(true);
       const request = todoistTaskRequest;
+      const renderIsCurrent = () => todoistTaskRenderIsCurrent(request, authEpoch);
       const cache = await readTodoistTaskCache(authEpoch);
       if (!todoistTaskLoadIsCurrent(request, authEpoch) || await todoistAuthGet(TODOIST_AUTH_EPOCH_KEY, null) !== authEpoch) return;
       if (cache) {
@@ -1105,7 +1107,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
         todoistHasTaskSnapshot = true;
         todoistTaskSnapshotPersisted = true;
         todoistTasksConfirmed = false;
-        await renderTodoistTasks({ preserveStatus: true });
+        const rendered = await renderTodoistTasks({ preserveStatus: true, isCurrent: renderIsCurrent });
+        if (!rendered || !await renderIsCurrent()) return;
         setTodoistStatus(`Showing saved tasks from ${formatTodoistCacheTime(cache.savedAt)} · Updating…`, false, true);
       }
       void loadTodoistTasks({ retainCurrentTasks: Boolean(cache) });
@@ -1121,6 +1124,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     const authEpoch = await ensureTodoistAuthEpoch();
     const request = ++todoistTaskRequest;
     todoistActiveAuthEpoch = authEpoch;
+    const renderIsCurrent = () => todoistTaskRenderIsCurrent(request, authEpoch);
     const cache = await readTodoistTaskCache(authEpoch);
     if (todoistTaskLoadIsCurrent(request, authEpoch) && await todoistAuthGet(TODOIST_AUTH_EPOCH_KEY, null) === authEpoch) {
       if (cache) {
@@ -1130,9 +1134,11 @@ chrome.storage.onChanged.addListener((changes, area) => {
         todoistHasTaskSnapshot = true;
         todoistTaskSnapshotPersisted = true;
         todoistTasksConfirmed = false;
-        await renderTodoistTasks({ preserveStatus: true });
-        setTodoistStatus(`Showing saved tasks from ${formatTodoistCacheTime(cache.savedAt)} · Updating…`, false, true);
-        void loadTodoistTasks({ retainCurrentTasks: true });
+        const rendered = await renderTodoistTasks({ preserveStatus: true, isCurrent: renderIsCurrent });
+        if (rendered && await renderIsCurrent()) {
+          setTodoistStatus(`Showing saved tasks from ${formatTodoistCacheTime(cache.savedAt)} · Updating…`, false, true);
+          void loadTodoistTasks({ retainCurrentTasks: true });
+        }
       } else void loadTodoistTasks();
     }
   }
