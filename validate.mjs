@@ -182,6 +182,9 @@ for (const [pattern, label] of [
   [/\.todoist-status\.is-updating::before[\s\S]*?border-right-color: transparent/, 'subtle Todoist refresh indicator'],
   [/@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.todoist-status\.is-updating::before \{ animation: none; \}/, 'Todoist refresh indicator respects reduced motion']
 ]) if (!pattern.test(js + css)) throw Error(`Todoist cache behavior missing: ${label}`);
+const todoistSpinnerIndex = css.indexOf('.todoist-status.is-updating::before {');
+const reducedMotionIndex = css.indexOf('@media (prefers-reduced-motion: reduce)', todoistSpinnerIndex);
+if (todoistSpinnerIndex < 0 || reducedMotionIndex < 0 || reducedMotionIndex < todoistSpinnerIndex) throw Error('Reduced-motion override must follow the Todoist spinner rule');
 for (const [pattern, label] of [
   [/\.dashboard-layout \{[\s\S]*?grid-template-columns: var\(--shortcut-sidebar-width\)/, 'desktop sidebar layout'], [/\.shortcuts-panel \.shortcut-section-grid \{ gap: 0; grid-template-columns: 1fr;/, 'single-column shortcut sections'], [/\.todoist-tasks \{ display: grid;/, 'stacked task groups'], [/\.todoist-group-list \{ display: grid;/, 'stacked task rows'], [/\.todoist-task \{[\s\S]*?grid-template-columns: auto minmax\(0, 1fr\) auto auto;/, 'dense full-width task row']
 ]) if (!pattern.test(css)) throw Error(`Todoist layout missing: ${label}`);
