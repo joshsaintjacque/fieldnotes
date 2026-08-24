@@ -791,7 +791,10 @@ async function connectTodoist() {
   } catch (error) {
     if (authAttempt) await cancelTodoistConnectAttempt(authAttempt);
     setTodoistConnection(Boolean(await readTodoistSession()));
-    if (todoistHasTaskSnapshot) setTodoistStatus(`Showing saved tasks from ${formatTodoistCacheTime(todoistTaskSnapshotSavedAt)} · Sign-in failed.`);
+    if (todoistHasTaskSnapshot) {
+      const source = todoistTaskSnapshotPersisted ? 'saved' : 'last fetched';
+      setTodoistStatus(`Showing ${source} tasks from ${formatTodoistCacheTime(todoistTaskSnapshotSavedAt)} · Sign-in failed.`);
+    }
     else setTodoistStatus(error.message || 'Todoist sign-in failed.', true);
   }
 }
