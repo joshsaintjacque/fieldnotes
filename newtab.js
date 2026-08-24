@@ -1064,7 +1064,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
       }
       invalidateTodoistTaskLoads(authEpoch);
       setTodoistConnection(true);
+      const request = todoistTaskRequest;
       const cache = await readTodoistTaskCache(authEpoch);
+      if (!todoistTaskLoadIsCurrent(request, authEpoch) || await todoistAuthGet(TODOIST_AUTH_EPOCH_KEY, null) !== authEpoch) return;
       if (cache) {
         todoistTasks = cache.tasks;
         todoistTaskSnapshotSavedAt = cache.savedAt;
@@ -1077,4 +1079,34 @@ chrome.storage.onChanged.addListener((changes, area) => {
     }
   })();
 });
-(async()=>{await restrictLocalStorageAccess();await loadShortcuts();const todoistAuth=await readTodoistSession();setTodoistConnection(Boolean(todoistAuth));if(todoistAuth){const authEpoch=await ensureTodoistAuthEpoch(),cache=await readTodoistTaskCache(authEpoch);todoistActiveAuthEpoch=authEpoch;if(cache){todoistTasks=cache.tasks;todoistTaskSnapshotSavedAt=cache.savedAt;todoistTaskSnapshotAuthEpoch=authEpoch;todoistHasTaskSnapshot=true;await renderTodoistTasks({preserveStatus:true});setTodoistStatus(`Showing saved tasks from ${formatTodoistCacheTime(cache.savedAt)} · Updating…`,false,true);void loadTodoistTasks({retainCurrentTasks:true})}else void loadTodoistTasks()}const l=await get(LOCATION_KEY,null),guard=await readLocationGuard(),selection={id:guard.selectionId,resetToken:guard.resetToken};if(l&&await locationIsCurrent(l,selection)){const c=await get(WEATHER_KEY,null);if(c?.data&&sameLocation(c.location,l)&&await locationIsCurrent(l,selection))renderWeather(c.data,l,c.savedAt,c.airQuality);fetchWeather(l,selection)}})();
+(async () => {
+  await restrictLocalStorageAccess();
+  await loadShortcuts();
+  const todoistAuth = await readTodoistSession();
+  setTodoistConnection(Boolean(todoistAuth));
+  if (todoistAuth) {
+    const authEpoch = await ensureTodoistAuthEpoch();
+    const request = ++todoistTaskRequest;
+    todoistActiveAuthEpoch = authEpoch;
+    const cache = await readTodoistTaskCache(authEpoch);
+    if (todoistTaskLoadIsCurrent(request, authEpoch) && await todoistAuthGet(TODOIST_AUTH_EPOCH_KEY, null) === authEpoch) {
+      if (cache) {
+        todoistTasks = cache.tasks;
+        todoistTaskSnapshotSavedAt = cache.savedAt;
+        todoistTaskSnapshotAuthEpoch = authEpoch;
+        todoistHasTaskSnapshot = true;
+        await renderTodoistTasks({ preserveStatus: true });
+        setTodoistStatus(`Showing saved tasks from ${formatTodoistCacheTime(cache.savedAt)} · Updating…`, false, true);
+        void loadTodoistTasks({ retainCurrentTasks: true });
+      } else void loadTodoistTasks();
+    }
+  }
+  const l = await get(LOCATION_KEY, null);
+  const guard = await readLocationGuard();
+  const selection = { id: guard.selectionId, resetToken: guard.resetToken };
+  if (l && await locationIsCurrent(l, selection)) {
+    const c = await get(WEATHER_KEY, null);
+    if (c?.data && sameLocation(c.location, l) && await locationIsCurrent(l, selection)) renderWeather(c.data, l, c.savedAt, c.airQuality);
+    fetchWeather(l, selection);
+  }
+})();
