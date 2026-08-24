@@ -865,10 +865,11 @@ async function visibleTodoistTasks() {
   });
 }
 
-async function renderTodoistTasks({ preserveStatus = false } = {}) {
+async function renderTodoistTasks({ preserveStatus = false, isCurrent = () => true } = {}) {
   const container = $('#todoistTasks');
-  container.replaceChildren();
   const { visible, snoozed } = await visibleTodoistTasks();
+  if (!await isCurrent()) return null;
+  container.replaceChildren();
   if (!visible.length) {
     const empty = document.createElement('p');
     empty.className = 'todoist-empty';
@@ -955,7 +956,10 @@ async function loadTodoistTasks({ retainCurrentTasks = todoistHasTaskSnapshot } 
     todoistHasTaskSnapshot = true;
     todoistRowErrors.clear();
     setTodoistConnection(true);
-    const { visible, snoozed } = await renderTodoistTasks({ preserveStatus: true });
+    const renderIsCurrent = async () => todoistTaskLoadIsCurrent(request, authEpoch) && await todoistAuthGet(TODOIST_AUTH_EPOCH_KEY, null) === authEpoch;
+    const rendered = await renderTodoistTasks({ preserveStatus: true, isCurrent: renderIsCurrent });
+    if (!rendered || !await renderIsCurrent()) return;
+    const { visible, snoozed } = rendered;
     setTodoistStatus(`Updated just now · ${visible.length} task${visible.length === 1 ? '' : 's'} due today${snoozed ? ` · ${snoozed} snoozed` : ''}.`);
   } catch (error) {
     if (!todoistTaskLoadIsCurrent(request, authEpoch) || await todoistAuthGet(TODOIST_AUTH_EPOCH_KEY, null) !== authEpoch) return;
