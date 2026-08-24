@@ -45,6 +45,7 @@ let todoistTasks = [];
 let todoistTaskSnapshotSavedAt = null;
 let todoistTaskSnapshotAuthEpoch = null;
 let todoistHasTaskSnapshot = false;
+let todoistTasksConfirmed = false;
 let todoistTaskRequest = 0;
 let todoistActiveAuthEpoch = null;
 let todoistPending = new Set();
@@ -510,6 +511,7 @@ function clearTodoistTaskSnapshot() {
   todoistTaskSnapshotSavedAt = null;
   todoistTaskSnapshotAuthEpoch = null;
   todoistHasTaskSnapshot = false;
+  todoistTasksConfirmed = false;
   todoistPending.clear();
   todoistRowErrors.clear();
   if (todoistSnoozeTimer) clearTimeout(todoistSnoozeTimer);
@@ -909,6 +911,15 @@ async function renderTodoistTasks({ preserveStatus = false, isCurrent = () => tr
       tomorrow.disabled = todoistPending.has(task.id) || Boolean(task.due?.is_recurring);
       tomorrow.title = task.due?.is_recurring ? 'Recurring tasks keep their Todoist schedule.' : task.due?.date?.includes('T') ? 'Move to tomorrow as an all-day task.' : 'Move to tomorrow.';
       snooze.title = 'Hide this task here for one hour. Its Todoist date will not change.';
+      if (!todoistTasksConfirmed) {
+        const reason = 'Refresh to confirm saved tasks before changing Todoist.';
+        complete.disabled = true;
+        complete.title = reason;
+        complete.setAttribute('aria-label', `Complete ${task.content}. ${reason}`);
+        tomorrow.disabled = true;
+        tomorrow.title = reason;
+        tomorrow.setAttribute('aria-label', `Move ${task.content} to tomorrow. ${reason}`);
+      }
       content.append(title);
       if (due.textContent) content.append(due);
       row.append(complete, content, tomorrow, snooze);
@@ -933,8 +944,12 @@ async function loadTodoistTasks({ retainCurrentTasks = todoistHasTaskSnapshot } 
   if (!authEpoch) return;
   const request = ++todoistTaskRequest;
   todoistActiveAuthEpoch = authEpoch;
-  if (retainCurrentTasks && todoistHasTaskSnapshot && todoistTaskSnapshotAuthEpoch === authEpoch) setTodoistStatus(`Showing saved tasks from ${formatTodoistCacheTime(todoistTaskSnapshotSavedAt)} · Updating…`, false, true);
-  else setTodoistStatus('Loading today’s tasks…', false, true);
+  const renderIsCurrent = async () => todoistTaskLoadIsCurrent(request, authEpoch) && await todoistAuthGet(TODOIST_AUTH_EPOCH_KEY, null) === authEpoch;
+  if (retainCurrentTasks && todoistHasTaskSnapshot && todoistTaskSnapshotAuthEpoch === authEpoch) {
+    todoistTasksConfirmed = false;
+    setTodoistStatus(`Showing saved tasks from ${formatTodoistCacheTime(todoistTaskSnapshotSavedAt)} · Updating…`, false, true);
+    if (!await renderTodoistTasks({ preserveStatus: true, isCurrent: renderIsCurrent })) return;
+  } else setTodoistStatus('Loading today’s tasks…', false, true);
   try {
     await loadTodoistTimeZone();
     const tasks = [];
@@ -954,9 +969,9 @@ async function loadTodoistTasks({ retainCurrentTasks = todoistHasTaskSnapshot } 
     todoistTaskSnapshotSavedAt = cache.savedAt;
     todoistTaskSnapshotAuthEpoch = authEpoch;
     todoistHasTaskSnapshot = true;
+    todoistTasksConfirmed = true;
     todoistRowErrors.clear();
     setTodoistConnection(true);
-    const renderIsCurrent = async () => todoistTaskLoadIsCurrent(request, authEpoch) && await todoistAuthGet(TODOIST_AUTH_EPOCH_KEY, null) === authEpoch;
     const rendered = await renderTodoistTasks({ preserveStatus: true, isCurrent: renderIsCurrent });
     if (!rendered || !await renderIsCurrent()) return;
     const { visible, snoozed } = rendered;
@@ -979,6 +994,7 @@ async function clearTodoistSnooze(taskId) {
 }
 
 async function mutateTodoistTask(task, action) {
+  if (!todoistTasksConfirmed && (action === 'complete' || action === 'tomorrow')) return;
   todoistPending.add(task.id);
   todoistRowErrors.delete(task.id);
   await renderTodoistTasks();
@@ -1076,6 +1092,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
         todoistTaskSnapshotSavedAt = cache.savedAt;
         todoistTaskSnapshotAuthEpoch = authEpoch;
         todoistHasTaskSnapshot = true;
+        todoistTasksConfirmed = false;
         await renderTodoistTasks({ preserveStatus: true });
         setTodoistStatus(`Showing saved tasks from ${formatTodoistCacheTime(cache.savedAt)} · Updating…`, false, true);
       }
@@ -1099,6 +1116,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
         todoistTaskSnapshotSavedAt = cache.savedAt;
         todoistTaskSnapshotAuthEpoch = authEpoch;
         todoistHasTaskSnapshot = true;
+        todoistTasksConfirmed = false;
         await renderTodoistTasks({ preserveStatus: true });
         setTodoistStatus(`Showing saved tasks from ${formatTodoistCacheTime(cache.savedAt)} · Updating…`, false, true);
         void loadTodoistTasks({ retainCurrentTasks: true });
