@@ -844,15 +844,17 @@ function todoistButton(label, action, task, className = 'todoist-action') {
   return button;
 }
 
-async function visibleTodoistTasks() {
+async function visibleTodoistTasks(tasks, isCurrent) {
   return withTodoistSnoozeLock(async () => {
+    if (!await isCurrent()) return null;
     const snoozes = await loadTodoistSnoozes();
+    if (!await isCurrent()) return null;
     const now = Date.now();
-    const knownIds = new Set(todoistTasks.map(task => String(task.id)));
+    const knownIds = new Set(tasks.map(task => String(task.id)));
     let changed = false;
     let snoozed = 0;
     let nextExpiry = Infinity;
-    const visible = todoistTasks.filter(task => {
+    const visible = tasks.filter(task => {
       const id = String(task.id);
       const entry = snoozes[id];
       if (!entry) return true;
@@ -871,17 +873,30 @@ async function visibleTodoistTasks() {
         changed = true;
       }
     }
-    if (changed) await set(TODOIST_SNOOZE_KEY, snoozes);
+    if (changed) {
+      const saved = await withTodoistAuthLock(async () => {
+        if (!await isCurrent()) return false;
+        await set(TODOIST_SNOOZE_KEY, snoozes);
+        return true;
+      });
+      if (!saved) return null;
+    }
+    if (!await isCurrent()) return null;
     if (todoistSnoozeTimer) clearTimeout(todoistSnoozeTimer);
     todoistSnoozeTimer = Number.isFinite(nextExpiry) ? setTimeout(() => { void loadTodoistTasks(); }, Math.max(1000, nextExpiry - now + 50)) : null;
     return { visible, snoozed };
   });
 }
 
-async function renderTodoistTasks({ preserveStatus = false, isCurrent = () => true } = {}) {
+async function renderTodoistTasks({ preserveStatus = false, isCurrent = null } = {}) {
   const container = $('#todoistTasks');
-  const { visible, snoozed } = await visibleTodoistTasks();
-  if (!await isCurrent()) return null;
+  const tasks = todoistTasks.slice();
+  const request = todoistTaskRequest;
+  const authEpoch = todoistActiveAuthEpoch;
+  const renderIsCurrent = isCurrent || (() => todoistTaskRenderIsCurrent(request, authEpoch));
+  const result = await visibleTodoistTasks(tasks, renderIsCurrent);
+  if (!result || !await renderIsCurrent()) return null;
+  const { visible, snoozed } = result;
   container.replaceChildren();
   if (!visible.length) {
     const empty = document.createElement('p');
