@@ -19,7 +19,9 @@ const todoistAuthStore = chrome.storage.local;
 const TODOIST_CLIENT_KEY = 'fieldTodoistClient';
 const TODOIST_AUTH_KEY = 'fieldTodoistAuth';
 const TODOIST_AUTH_EPOCH_KEY = 'fieldTodoistAuthEpoch';
+const TODOIST_AUTH_ATTEMPT_KEY = 'fieldTodoistAuthAttempt';
 const TODOIST_SNOOZE_KEY = 'fieldTodoistSnoozes';
+const TODOIST_TASK_CACHE_KEY = 'fieldTodoistTodayCache';
 const TODOIST_API = 'https://api.todoist.com/api/v1';
 const TODOIST_HOST = 'https://api.todoist.com/*';
 const TODOIST_AUTH_URL = 'https://app.todoist.com/oauth/authorize';
@@ -40,6 +42,11 @@ let airQualityPermission = null;
 let locationSelection = 0;
 let currentShortcutModel = emptyShortcutModel();
 let todoistTasks = [];
+let todoistTaskSnapshotSavedAt = null;
+let todoistTaskSnapshotAuthEpoch = null;
+let todoistHasTaskSnapshot = false;
+let todoistTaskRequest = 0;
+let todoistActiveAuthEpoch = null;
 let todoistPending = new Set();
 let todoistRowErrors = new Map();
 let todoistSnoozeTimer = null;
@@ -460,12 +467,67 @@ const isTodoistSession = session => Boolean(session && typeof session === 'objec
 const sameTodoistAccessToken = (left, right) => Boolean(left?.accessToken && left.accessToken === right?.accessToken);
 const todoistCredentialError = message => Object.assign(new Error(message), { todoistCredentialsInvalid: true });
 const todoistAuthInvalidatedError = () => todoistCredentialError('Todoist sign-in changed. Connect again.');
+const todoistTaskForCache = task => ({
+  id: typeof task.id === 'string' || typeof task.id === 'number' ? String(task.id) : '',
+  content: typeof task.content === 'string' ? task.content : '',
+  priority: Number.isInteger(task.priority) ? task.priority : 1,
+  due: task.due && typeof task.due.date === 'string' ? { date: task.due.date, is_recurring: Boolean(task.due.is_recurring) } : null
+});
+const isTodoistCachedTask = task => Boolean(task && typeof task === 'object' && !Array.isArray(task) && typeof task.id === 'string' && task.id && typeof task.content === 'string' && Number.isInteger(task.priority) && task.priority >= 1 && task.priority <= 4 && (task.due === null || (typeof task.due === 'object' && !Array.isArray(task.due) && typeof task.due.date === 'string' && typeof task.due.is_recurring === 'boolean' && Object.keys(task.due).every(key => ['date', 'is_recurring'].includes(key)))) && Object.keys(task).every(key => ['id', 'content', 'priority', 'due'].includes(key)));
+const isTodoistTaskCache = cache => Boolean(cache && typeof cache === 'object' && !Array.isArray(cache) && Array.isArray(cache.tasks) && cache.tasks.every(isTodoistCachedTask) && Number.isFinite(cache.savedAt) && typeof cache.authEpoch === 'string' && cache.authEpoch && Object.keys(cache).every(key => ['tasks', 'savedAt', 'authEpoch'].includes(key)));
+const formatTodoistCacheTime = savedAt => new Date(savedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+async function ensureTodoistAuthEpoch() {
+  return withTodoistAuthLock(async () => {
+    if (!isTodoistSession(await todoistAuthGet(TODOIST_AUTH_KEY, null))) return null;
+    const existing = await todoistAuthGet(TODOIST_AUTH_EPOCH_KEY, null);
+    if (typeof existing === 'string' && existing) return existing;
+    const epoch = randomToken();
+    await todoistAuthSet(TODOIST_AUTH_EPOCH_KEY, epoch);
+    return epoch;
+  });
+}
+
+async function readTodoistTaskCache(authEpoch) {
+  const cache = await todoistAuthGet(TODOIST_TASK_CACHE_KEY, null);
+  return isTodoistTaskCache(cache) && cache.authEpoch === authEpoch ? cache : null;
+}
+
+async function writeTodoistTaskCache(tasks, authEpoch, request) {
+  return withTodoistAuthLock(async () => {
+    const session = await todoistAuthGet(TODOIST_AUTH_KEY, null);
+    if (!Array.isArray(tasks) || !todoistTaskLoadIsCurrent(request, authEpoch) || await todoistAuthGet(TODOIST_AUTH_EPOCH_KEY, null) !== authEpoch || !isTodoistSession(session)) return null;
+    const cache = { tasks: tasks.map(todoistTaskForCache).filter(isTodoistCachedTask), savedAt: Date.now(), authEpoch };
+    await todoistAuthSet(TODOIST_TASK_CACHE_KEY, cache);
+    return cache;
+  });
+}
+
+const todoistTaskLoadIsCurrent = (request, authEpoch) => request === todoistTaskRequest && authEpoch === todoistActiveAuthEpoch;
+
+function clearTodoistTaskSnapshot() {
+  todoistTasks = [];
+  todoistTaskSnapshotSavedAt = null;
+  todoistTaskSnapshotAuthEpoch = null;
+  todoistHasTaskSnapshot = false;
+  todoistPending.clear();
+  todoistRowErrors.clear();
+  if (todoistSnoozeTimer) clearTimeout(todoistSnoozeTimer);
+  todoistSnoozeTimer = null;
+  $('#todoistTasks').replaceChildren();
+}
+
+function invalidateTodoistTaskLoads(authEpoch = null) {
+  todoistTaskRequest += 1;
+  todoistActiveAuthEpoch = authEpoch;
+  clearTodoistTaskSnapshot();
+}
 
 async function invalidateTodoistAuthLocked(expectedSession = null, clearClient = false) {
   const latest = await todoistAuthGet(TODOIST_AUTH_KEY, null);
   if (expectedSession && !sameTodoistAccessToken(latest, expectedSession)) return false;
   await todoistAuthSet(TODOIST_AUTH_EPOCH_KEY, randomToken());
-  await todoistAuthStore.remove(clearClient ? [TODOIST_AUTH_KEY, TODOIST_CLIENT_KEY] : TODOIST_AUTH_KEY);
+  await todoistAuthStore.remove(clearClient ? [TODOIST_AUTH_KEY, TODOIST_CLIENT_KEY, TODOIST_AUTH_ATTEMPT_KEY, TODOIST_TASK_CACHE_KEY] : [TODOIST_AUTH_KEY, TODOIST_AUTH_ATTEMPT_KEY, TODOIST_TASK_CACHE_KEY]);
   return true;
 }
 
@@ -490,9 +552,28 @@ async function readTodoistSession() {
 
 async function beginTodoistConnect() {
   return withTodoistAuthLock(async () => {
-    const epoch = randomToken();
-    await todoistAuthSet(TODOIST_AUTH_EPOCH_KEY, epoch);
-    return epoch;
+    const attempt = randomToken();
+    await todoistAuthSet(TODOIST_AUTH_ATTEMPT_KEY, attempt);
+    return attempt;
+  });
+}
+
+async function cancelTodoistConnectAttempt(attempt) {
+  return withTodoistAuthLock(async () => {
+    if (await todoistAuthGet(TODOIST_AUTH_ATTEMPT_KEY, null) !== attempt) return false;
+    await todoistAuthStore.remove(TODOIST_AUTH_ATTEMPT_KEY);
+    return true;
+  });
+}
+
+async function completeTodoistConnect(attempt, session) {
+  return withTodoistAuthLock(async () => {
+    if (await todoistAuthGet(TODOIST_AUTH_ATTEMPT_KEY, null) !== attempt) throw todoistAuthInvalidatedError();
+    const authEpoch = randomToken();
+    await todoistAuthSet(TODOIST_AUTH_EPOCH_KEY, authEpoch);
+    await todoistAuthStore.remove([TODOIST_AUTH_ATTEMPT_KEY, TODOIST_TASK_CACHE_KEY]);
+    await todoistAuthSet(TODOIST_AUTH_KEY, session);
+    return authEpoch;
   });
 }
 const containsPermission = permission => new Promise(resolve => chrome.permissions.contains(permission, resolve));
@@ -516,10 +597,11 @@ const todoistTomorrow = timeZone => {
   return `${noonUtc.getUTCFullYear()}-${String(noonUtc.getUTCMonth() + 1).padStart(2, '0')}-${String(noonUtc.getUTCDate()).padStart(2, '0')}`;
 };
 
-function setTodoistStatus(message, isError = false) {
+function setTodoistStatus(message, isError = false, isUpdating = false) {
   const status = $('#todoistStatus');
   status.textContent = message;
   status.classList.toggle('is-error', isError);
+  status.classList.toggle('is-updating', isUpdating);
 }
 
 function setTodoistConnection(connected) {
@@ -662,8 +744,9 @@ async function loadTodoistTimeZone() {
 
 async function connectTodoist() {
   setTodoistStatus('Opening Todoist sign-in…');
+  let authAttempt = null;
   try {
-    const authEpoch = await beginTodoistConnect();
+    authAttempt = await beginTodoistConnect();
     if (!await ensureTodoistHost()) throw new Error('Todoist network access was not granted.');
     const client = await todoistClient();
     const verifier = randomToken();
@@ -691,24 +774,20 @@ async function connectTodoist() {
       client_id: client.clientId,
       code_verifier: verifier
     });
-    await withTodoistAuthLock(async () => {
-      if (await todoistAuthGet(TODOIST_AUTH_EPOCH_KEY, null) !== authEpoch) throw todoistAuthInvalidatedError();
-      await todoistAuthSet(TODOIST_AUTH_KEY, session);
-    });
+    const authEpoch = await completeTodoistConnect(authAttempt, session);
+    invalidateTodoistTaskLoads(authEpoch);
     setTodoistConnection(true);
-    await loadTodoistTasks();
+    await loadTodoistTasks({ retainCurrentTasks: false });
   } catch (error) {
+    if (authAttempt) await cancelTodoistConnectAttempt(authAttempt);
     setTodoistConnection(Boolean(await readTodoistSession()));
-    setTodoistStatus(error.message || 'Todoist sign-in failed.', true);
+    if (todoistHasTaskSnapshot) setTodoistStatus(`Showing saved tasks from ${formatTodoistCacheTime(todoistTaskSnapshotSavedAt)} · Sign-in failed.`);
+    else setTodoistStatus(error.message || 'Todoist sign-in failed.', true);
   }
 }
 
 function resetTodoistUi(status = 'Connect Todoist to see today’s tasks.') {
-  todoistTasks = [];
-  todoistPending.clear();
-  todoistRowErrors.clear();
-  if (todoistSnoozeTimer) clearTimeout(todoistSnoozeTimer);
-  todoistSnoozeTimer = null;
+  invalidateTodoistTaskLoads();
   setTodoistConnection(false);
   setTodoistStatus(status);
   $('#todoistTasks').replaceChildren();
@@ -786,7 +865,7 @@ async function visibleTodoistTasks() {
   });
 }
 
-async function renderTodoistTasks() {
+async function renderTodoistTasks({ preserveStatus = false } = {}) {
   const container = $('#todoistTasks');
   container.replaceChildren();
   const { visible, snoozed } = await visibleTodoistTasks();
@@ -844,12 +923,17 @@ async function renderTodoistTasks() {
     group.append(heading, list);
     container.append(group);
   }
-  if (todoistConnected) setTodoistStatus(`${visible.length} task${visible.length === 1 ? '' : 's'} due today${snoozed ? ` · ${snoozed} snoozed` : ''}.`);
+  if (todoistConnected && !preserveStatus && !$('#todoistStatus').classList.contains('is-updating')) setTodoistStatus(`${visible.length} task${visible.length === 1 ? '' : 's'} due today${snoozed ? ` · ${snoozed} snoozed` : ''}.`);
+  return { visible, snoozed };
 }
 
-async function loadTodoistTasks() {
-  const authEpoch = await todoistAuthGet(TODOIST_AUTH_EPOCH_KEY, null);
-  setTodoistStatus('Loading today’s tasks…');
+async function loadTodoistTasks({ retainCurrentTasks = todoistHasTaskSnapshot } = {}) {
+  const authEpoch = await ensureTodoistAuthEpoch();
+  if (!authEpoch) return;
+  const request = ++todoistTaskRequest;
+  todoistActiveAuthEpoch = authEpoch;
+  if (retainCurrentTasks && todoistHasTaskSnapshot && todoistTaskSnapshotAuthEpoch === authEpoch) setTodoistStatus(`Showing saved tasks from ${formatTodoistCacheTime(todoistTaskSnapshotSavedAt)} · Updating…`, false, true);
+  else setTodoistStatus('Loading today’s tasks…', false, true);
   try {
     await loadTodoistTimeZone();
     const tasks = [];
@@ -862,17 +946,26 @@ async function loadTodoistTasks() {
       tasks.push(...page.results);
       cursor = page.next_cursor || null;
     } while (cursor);
-    if (await todoistAuthGet(TODOIST_AUTH_EPOCH_KEY, null) !== authEpoch || !await readTodoistSession()) return;
+    if (!todoistTaskLoadIsCurrent(request, authEpoch) || await todoistAuthGet(TODOIST_AUTH_EPOCH_KEY, null) !== authEpoch || !await readTodoistSession()) return;
+    const cache = await writeTodoistTaskCache(tasks, authEpoch, request);
+    if (!cache || !todoistTaskLoadIsCurrent(request, authEpoch)) return;
     todoistTasks = tasks;
+    todoistTaskSnapshotSavedAt = cache.savedAt;
+    todoistTaskSnapshotAuthEpoch = authEpoch;
+    todoistHasTaskSnapshot = true;
     todoistRowErrors.clear();
     setTodoistConnection(true);
-    await renderTodoistTasks();
+    const { visible, snoozed } = await renderTodoistTasks({ preserveStatus: true });
+    setTodoistStatus(`Updated just now · ${visible.length} task${visible.length === 1 ? '' : 's'} due today${snoozed ? ` · ${snoozed} snoozed` : ''}.`);
   } catch (error) {
-    if (await todoistAuthGet(TODOIST_AUTH_EPOCH_KEY, null) !== authEpoch) return;
-    todoistTasks = [];
-    $('#todoistTasks').replaceChildren();
+    if (!todoistTaskLoadIsCurrent(request, authEpoch) || await todoistAuthGet(TODOIST_AUTH_EPOCH_KEY, null) !== authEpoch) return;
     const session = await readTodoistSession();
     setTodoistConnection(Boolean(session));
+    if (todoistHasTaskSnapshot && todoistTaskSnapshotAuthEpoch === authEpoch) {
+      const savedAt = todoistTaskSnapshotSavedAt ? ` from ${formatTodoistCacheTime(todoistTaskSnapshotSavedAt)}` : '';
+      setTodoistStatus(`Showing saved tasks${savedAt} · Update failed.`);
+      return;
+    }
     setTodoistStatus(error.message || 'Todoist tasks are unavailable.', true);
   }
 }
@@ -941,24 +1034,47 @@ async function renderCachedWeather(location,selection,token){return withLocation
 async function fetchWeather(location,selection){const token=++weatherRequest;if(activeController)activeController.abort();const controller=activeController=new AbortController();showWeatherLoading();try{const params=new URLSearchParams({latitude:String(location.latitude),longitude:String(location.longitude),current:'temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m',daily:'temperature_2m_max,temperature_2m_min',temperature_unit:'fahrenheit',timezone:'auto'}),response=await fetch(`https://api.open-meteo.com/v1/forecast?${params}`,{signal:controller.signal});if(!response.ok)throw Error();const data=await response.json();if(token!==weatherRequest)return;const saved={data,location,savedAt:Date.now(),requestId:crypto.randomUUID()};if(!await persistWeather(location,selection,token,saved))return;void fetchAirQuality(location,selection,token,saved,controller)}catch(e){if(e.name==='AbortError'||token!==weatherRequest)return;if(!await renderCachedWeather(location,selection,token)&&await locationIsCurrent(location,selection))showWeatherError('The forecast is unavailable right now.')}}
 async function useCoordinates(){const localSelection=++locationSelection,startedAt=Date.now(),status=$('#locationStatus'),selectionPromise=beginLocationSelection(startedAt);status.textContent='';void ensureAirQualityHost();if(!await ensureHosts()){if(localSelection!==locationSelection)return;const selection=await selectionPromise;if(!selection||localSelection!==locationSelection)return;status.textContent='Network access was not granted.';showWeatherError('Network access was not granted. Search again when ready.');return}const selection=await selectionPromise;if(!selection||localSelection!==locationSelection)return;showWeatherLoading();navigator.geolocation.getCurrentPosition(async p=>{if(localSelection!==locationSelection)return;const l={latitude:p.coords.latitude,longitude:p.coords.longitude,name:'Current location'};if(!await saveLocation(selection,l)||localSelection!==locationSelection)return;$('#locationDialog').close();fetchWeather(l,selection)},()=>{if(localSelection!==locationSelection)return;status.textContent='We could not read your location. Search for a city instead.';showWeatherError('We could not read your location. Search for a city instead.')},{timeout:1e4,maximumAge:3e5})}
 async function searchCity(){const q=$('#cityInput').value.trim();if(!q)return;const localSelection=++locationSelection,startedAt=Date.now(),selectionPromise=beginLocationSelection(startedAt);$('#locationStatus').textContent='Searching…';void ensureAirQualityHost();try{if(!await ensureHosts())throw Error('permission');const r=await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=1&language=en&format=json`),x=await r.json(),p=x.results?.[0],selection=await selectionPromise;if(!selection||localSelection!==locationSelection)return;if(!p)throw Error();const l={latitude:p.latitude,longitude:p.longitude,name:[p.name,p.admin1,p.country_code].filter(Boolean).join(', ')};if(!await saveLocation(selection,l)||localSelection!==locationSelection)return;$('#locationDialog').close();fetchWeather(l,selection)}catch(e){if(localSelection!==locationSelection)return;const selection=await selectionPromise;if(!selection||localSelection!==locationSelection)return;$('#locationStatus').textContent=e.message==='permission'?'Network access was not granted.':'No matching city found. Try a country or region.'}}
-function openLocation(){$('#locationStatus').textContent='';$('#locationDialog').showModal();setTimeout(()=>$('#cityInput').focus(),30)}async function resetLocation(){await clearWeatherLocation();$('#settingsDialog').close();showLocationEmpty()}$('#locationButton').addEventListener('click',openLocation);$('#startLocation').addEventListener('click',openLocation);$('#useLocation').addEventListener('click',e=>{e.preventDefault();useCoordinates()});$('#searchLocation').addEventListener('click',openLocation);$('#findCity').addEventListener('click',searchCity);$('#cityInput').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();searchCity()}});$('#settingsButton').addEventListener('click',()=>$('#settingsDialog').showModal());$('#resetLocation').addEventListener('click',()=>{void resetLocation()});$('#clearData').addEventListener('click',async()=>{if(confirm('Clear shortcuts, location, weather, Todoist connection, snoozes, and sidebar width from this device?')){await clearWeatherLocation();await queue(async()=>{const previous=await readShortcutModel(),model=emptyShortcutModel(previous.resetToken+1);await set(SHORTCUTS_KEY,model);renderShortcuts(model)});await store.remove([TODOIST_SNOOZE_KEY,SIDEBAR_WIDTH_KEY]);applySidebarWidth(SIDEBAR_WIDTH_DEFAULT);await disconnectTodoist({clearClient:true});$('#settingsDialog').close();showLocationEmpty()}});
+function openLocation(){$('#locationStatus').textContent='';$('#locationDialog').showModal();setTimeout(()=>$('#cityInput').focus(),30)}async function resetLocation(){await clearWeatherLocation();$('#settingsDialog').close();showLocationEmpty()}$('#locationButton').addEventListener('click',openLocation);$('#startLocation').addEventListener('click',openLocation);$('#useLocation').addEventListener('click',e=>{e.preventDefault();useCoordinates()});$('#searchLocation').addEventListener('click',openLocation);$('#findCity').addEventListener('click',searchCity);$('#cityInput').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();searchCity()}});$('#settingsButton').addEventListener('click',()=>$('#settingsDialog').showModal());$('#resetLocation').addEventListener('click',()=>{void resetLocation()});$('#clearData').addEventListener('click',async()=>{if(confirm('Clear shortcuts, location, weather, Todoist connection, saved tasks, snoozes, and sidebar width from this device?')){await clearWeatherLocation();await queue(async()=>{const previous=await readShortcutModel(),model=emptyShortcutModel(previous.resetToken+1);await set(SHORTCUTS_KEY,model);renderShortcuts(model)});await store.remove([TODOIST_SNOOZE_KEY,SIDEBAR_WIDTH_KEY]);applySidebarWidth(SIDEBAR_WIDTH_DEFAULT);await disconnectTodoist({clearClient:true});$('#settingsDialog').close();showLocationEmpty()}});
 for(const dialogId of ['shortcutDialog','sectionDialog'])for(const cancel of document.querySelectorAll(`#${dialogId} .dialog-actions .text-button:not(.danger)`))cancel.addEventListener('click',event=>{event.preventDefault();$(`#${dialogId}`).close()});
 for(const dialog of document.querySelectorAll('dialog'))for(const close of dialog.querySelectorAll('.close-button'))close.addEventListener('click',event=>{event.preventDefault();dialog.close()});
 chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local') return;
   if (area === 'local' && changes[SIDEBAR_WIDTH_KEY]) {
     shortcutSidebarRevision += 1;
     applySidebarWidth(changes[SIDEBAR_WIDTH_KEY].newValue ?? SIDEBAR_WIDTH_DEFAULT);
   }
   if (area === 'local' && changes[TODOIST_SNOOZE_KEY] && todoistConnected) void renderTodoistTasks();
-  if (area === 'local' && changes[TODOIST_AUTH_KEY]) {
+  if (changes[TODOIST_AUTH_EPOCH_KEY] && changes[TODOIST_AUTH_EPOCH_KEY].newValue !== todoistActiveAuthEpoch) invalidateTodoistTaskLoads(typeof changes[TODOIST_AUTH_EPOCH_KEY].newValue === 'string' ? changes[TODOIST_AUTH_EPOCH_KEY].newValue : null);
+  if (changes[TODOIST_TASK_CACHE_KEY]) {
+    const cache = changes[TODOIST_TASK_CACHE_KEY].newValue;
+    if (!isTodoistTaskCache(cache) || cache.authEpoch !== todoistActiveAuthEpoch) invalidateTodoistTaskLoads(todoistActiveAuthEpoch);
+  }
+  if (changes[TODOIST_AUTH_KEY]) void (async () => {
     const session = changes[TODOIST_AUTH_KEY].newValue;
     if (!isTodoistSession(session)) {
       resetTodoistUi();
-      if (session) void discardMalformedTodoistAuth();
-    } else if (!todoistConnected || !sameTodoistAccessToken(changes[TODOIST_AUTH_KEY].oldValue, session)) {
-      setTodoistConnection(true);
-      void loadTodoistTasks();
+      if (session) await discardMalformedTodoistAuth();
+      return;
     }
-  }
+    if (!todoistConnected || !sameTodoistAccessToken(changes[TODOIST_AUTH_KEY].oldValue, session)) {
+      const authEpoch = await ensureTodoistAuthEpoch();
+      if (todoistHasTaskSnapshot && todoistTaskSnapshotAuthEpoch === authEpoch) {
+        setTodoistConnection(true);
+        return;
+      }
+      invalidateTodoistTaskLoads(authEpoch);
+      setTodoistConnection(true);
+      const cache = await readTodoistTaskCache(authEpoch);
+      if (cache) {
+        todoistTasks = cache.tasks;
+        todoistTaskSnapshotSavedAt = cache.savedAt;
+        todoistTaskSnapshotAuthEpoch = authEpoch;
+        todoistHasTaskSnapshot = true;
+        await renderTodoistTasks({ preserveStatus: true });
+        setTodoistStatus(`Showing saved tasks from ${formatTodoistCacheTime(cache.savedAt)} · Updating…`, false, true);
+      }
+      void loadTodoistTasks({ retainCurrentTasks: Boolean(cache) });
+    }
+  })();
 });
-(async()=>{await restrictLocalStorageAccess();await loadShortcuts();const todoistAuth=await readTodoistSession();setTodoistConnection(Boolean(todoistAuth));if(todoistAuth)await loadTodoistTasks();const l=await get(LOCATION_KEY,null),guard=await readLocationGuard(),selection={id:guard.selectionId,resetToken:guard.resetToken};if(l&&await locationIsCurrent(l,selection)){const c=await get(WEATHER_KEY,null);if(c?.data&&sameLocation(c.location,l)&&await locationIsCurrent(l,selection))renderWeather(c.data,l,c.savedAt,c.airQuality);fetchWeather(l,selection)}})();
+(async()=>{await restrictLocalStorageAccess();await loadShortcuts();const todoistAuth=await readTodoistSession();setTodoistConnection(Boolean(todoistAuth));if(todoistAuth){const authEpoch=await ensureTodoistAuthEpoch(),cache=await readTodoistTaskCache(authEpoch);todoistActiveAuthEpoch=authEpoch;if(cache){todoistTasks=cache.tasks;todoistTaskSnapshotSavedAt=cache.savedAt;todoistTaskSnapshotAuthEpoch=authEpoch;todoistHasTaskSnapshot=true;await renderTodoistTasks({preserveStatus:true});setTodoistStatus(`Showing saved tasks from ${formatTodoistCacheTime(cache.savedAt)} · Updating…`,false,true);void loadTodoistTasks({retainCurrentTasks:true})}else void loadTodoistTasks()}const l=await get(LOCATION_KEY,null),guard=await readLocationGuard(),selection={id:guard.selectionId,resetToken:guard.resetToken};if(l&&await locationIsCurrent(l,selection)){const c=await get(WEATHER_KEY,null);if(c?.data&&sameLocation(c.location,l)&&await locationIsCurrent(l,selection))renderWeather(c.data,l,c.savedAt,c.airQuality);fetchWeather(l,selection)}})();
