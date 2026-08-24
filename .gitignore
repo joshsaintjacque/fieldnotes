@@ -1,0 +1,9 @@
+/_metadata/
+/work/
+.DS_Store
+*.zip
+
+# Local Chrome profiles and unpacked-extension state
+/.chrome-profile/
+/chrome-profile-*/
+/test-profile-*/

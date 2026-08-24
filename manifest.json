@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Field Notes New Tab",
+  "version": "1.0.0",
+  "description": "A calm, atmospheric new tab for weather, search, and your shortcuts.",
+  "chrome_url_overrides": { "newtab": "newtab.html" },
+  "optional_permissions": ["topSites"],
+  "optional_host_permissions": ["https://api.open-meteo.com/*", "https://geocoding-api.open-meteo.com/*", "https://air-quality-api.open-meteo.com/*", "https://api.todoist.com/*"],
+  "permissions": ["storage", "geolocation", "favicon", "identity"]
+}

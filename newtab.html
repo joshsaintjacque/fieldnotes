@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Field Notes</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="page-shell">
+    <header class="masthead">
+      <a class="wordmark" href="newtab.html" aria-label="Field Notes home"><span class="mark" aria-hidden="true">⌁</span><span>FIELD NOTES</span></a>
+      <div class="header-meta"><span class="eyebrow">PERSONAL WEATHER STATION</span><span id="todayLabel">—</span></div>
+    </header>
+    <div class="dashboard-layout">
+      <aside class="shortcuts-panel" aria-labelledby="shortcutsHeading">
+        <div class="section-heading"><div><p class="kicker">WAYPOINTS / 02</p><h2 id="shortcutsHeading">Your shortcuts</h2></div></div>
+        <div class="heading-actions"><button class="text-button" id="importTopSites" type="button">Import frequent sites</button><button class="text-button" id="addSection" type="button">+ Add section</button><button class="accent-button small" id="addShortcut" type="button">+ Add shortcut</button></div>
+        <div id="shortcutGrid" class="shortcut-sections" aria-live="polite"></div>
+        <p id="shortcutHint" class="muted">Import frequent sites to get started. Chrome’s protected customized New Tab tiles cannot be imported.</p>
+      </aside>
+      <button class="shortcut-resizer" id="shortcutResizer" type="button" role="separator" aria-label="Resize shortcuts sidebar" aria-orientation="vertical" aria-valuemin="165" aria-valuemax="340" aria-valuenow="195" title="Drag to resize. Double-click to reset."></button>
+      <div class="dashboard-main">
+        <section class="now-panel" aria-label="Current time and weather">
+          <div class="clock-card" aria-label="Current time"><p class="kicker">LOCAL TIME <span aria-hidden="true">/</span> <span id="timeZoneLabel">LOCAL TIME</span></p><time id="clock" datetime="">--:--</time><span id="clockSeconds" class="seconds">--</span></div>
+          <div class="weather-panel" aria-labelledby="weatherHeading"><div class="section-heading"><div><p class="kicker">ATMOSPHERE / 01</p><h2 id="weatherHeading">Weather at hand</h2></div><button class="text-button" id="locationButton" type="button">Set location</button></div><div id="weatherContent" class="weather-content" aria-live="polite"><div class="weather-empty"><span class="weather-symbol" aria-hidden="true">✧</span><p>Choose your location to begin a local forecast.</p><button class="accent-button" id="startLocation" type="button">Use my location</button><button class="text-button" id="searchLocation" type="button">Search a city</button></div></div></div>
+        </section>
+        <section class="todoist-panel" aria-labelledby="todoistHeading">
+          <div class="section-heading"><div><p class="kicker">TODAY / 03</p><h2 id="todoistHeading">Todoist Today</h2></div><button class="text-button" id="todoistConnect" type="button">Connect Todoist</button></div>
+          <p id="todoistStatus" class="todoist-status" aria-live="polite">Connect Todoist to see today’s tasks.</p>
+          <div id="todoistTasks" class="todoist-tasks" aria-live="polite"></div>
+        </section>
+      </div>
+    </div>
+    <footer><span>FIELD NOTES <span aria-hidden="true">·</span> TAKE A MOMENT, LOOK AROUND</span><button class="text-button" id="settingsButton" type="button">Settings &amp; data</button></footer>
+  </main>
+  <dialog id="shortcutDialog" class="dialog"><form method="dialog" id="shortcutForm"><div class="dialog-top"><p class="kicker">WAYPOINT EDITOR</p><button class="close-button" type="button" aria-label="Close">×</button></div><h2 id="dialogTitle">Add a shortcut</h2><label for="shortcutName">Name</label><input id="shortcutName" required maxlength="60"><label for="shortcutUrl">URL</label><input id="shortcutUrl" type="text" inputmode="url" autocapitalize="off" spellcheck="false" placeholder="example.com" required><label for="shortcutSection">Section</label><select id="shortcutSection" required></select><div class="dialog-actions"><button class="text-button danger" id="deleteShortcut" type="button" hidden>Delete</button><button class="text-button" type="button">Cancel</button><button class="accent-button" id="saveShortcut" type="submit">Save shortcut</button></div></form></dialog>
+  <dialog id="sectionDialog" class="dialog"><form method="dialog" id="sectionForm"><div class="dialog-top"><p class="kicker">SECTION EDITOR</p><button class="close-button" type="button" aria-label="Close">×</button></div><h2 id="sectionDialogTitle">Add a section</h2><label for="sectionName">Section name</label><input id="sectionName" required maxlength="40"><p id="sectionDialogNote" class="dialog-description" hidden></p><div class="dialog-actions"><button class="text-button danger" id="deleteSection" type="button" hidden>Delete section</button><button class="text-button" type="button">Cancel</button><button class="accent-button" id="saveSection" type="submit">Save section</button></div></form></dialog>
+  <dialog id="locationDialog" class="dialog"><form method="dialog" id="locationForm"><div class="dialog-top"><p class="kicker">OBSERVATION POINT</p><button class="close-button" type="button" value="cancel" aria-label="Close">×</button></div><h2>Where should we look?</h2><p class="dialog-description">Your saved location stays on this device. Coordinates or a searched city go to Open-Meteo for weather and air quality. No account or API key is needed.</p><button class="accent-button full" id="useLocation" type="button" value="default">Use my location</button><div class="or-rule"><span>or search a city</span></div><label class="sr-only" for="cityInput">City name</label><input id="cityInput" placeholder="City, country" autocomplete="off"><button class="accent-button full" id="findCity" type="button">Find city</button><p id="locationStatus" class="form-status" aria-live="polite"></p></form></dialog>
+  <dialog id="settingsDialog" class="dialog"><form method="dialog"><div class="dialog-top"><p class="kicker">FIELD SETTINGS</p><button class="close-button" type="button" value="cancel" aria-label="Close">×</button></div><h2>Settings &amp; data</h2><p class="dialog-description">Shortcuts, location, weather cache, Todoist connection, and snoozes are stored locally in this extension. Todoist sign-in persists until you disconnect or clear local data.</p><section class="settings-location" aria-labelledby="locationSettingsHeading"><p class="kicker" id="locationSettingsHeading">LOCATION</p><p class="dialog-description">Remove the saved location and weather cache. Your shortcuts, Todoist connection, sidebar, and snoozes stay unchanged.</p><button class="text-button full danger" id="resetLocation" type="button">Reset location</button></section><section class="settings-todoist" aria-labelledby="todoistSettingsHeading"><p class="kicker" id="todoistSettingsHeading">TODOIST</p><p id="todoistConnectionStatus" class="dialog-description" aria-live="polite">Checking connection…</p><button class="accent-button full" id="settingsTodoistConnect" type="button">Connect Todoist</button><button class="text-button full danger" id="todoistDisconnect" type="button" hidden>Disconnect Todoist</button></section><button class="text-button full danger" id="clearData" type="button">Clear local data</button></form></dialog>
+  <script src="newtab.js"></script>
+</body>
+</html>
