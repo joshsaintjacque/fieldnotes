@@ -34,7 +34,11 @@ if (!html.includes('id="saveSection" type="submit"')) throw Error('Section save 
 if (!html.includes('+ Add section') || !html.includes('for="shortcutSection"')) throw Error('Section creation or shortcut assignment UI missing');
 if (!html.includes('class="close-button" type="button"') || !html.includes('class="text-button" type="button">Cancel')) throw Error('Dialog cancel controls must not submit');
 if (!css.includes('.shortcut-section-grid') || !css.includes('repeat(auto-fill, minmax(88px, 1fr))') || !css.includes('.section-empty')) throw Error('Section grid or empty-state styling missing');
-if (!css.includes('scrollbar-width: none') || !css.includes('.shortcuts-panel::-webkit-scrollbar')) throw Error('Shortcut sidebar scrollbar hiding missing');
+const dashboardCssStart = css.indexOf('/* Dashboard layout */');
+const stackedSidebarCssStart = css.indexOf('@media (max-width: 930px)', dashboardCssStart);
+const desktopDashboardCss = css.slice(dashboardCssStart, stackedSidebarCssStart);
+const desktopShortcutPanelRules = [...desktopDashboardCss.matchAll(/\.shortcuts-panel[^{}]*\{([^}]*)\}/g)].map(match => match[1]);
+if (desktopShortcutPanelRules.some(rule => /\b(?:max-height|overflow(?:-y)?|scrollbar-width)\s*:/.test(rule)) || css.includes('.shortcuts-panel::-webkit-scrollbar')) throw Error('Shortcut sidebar must grow with the dashboard');
 if (!css.includes('--shortcut-sidebar-width') || !css.includes('grid-template-columns: var(--shortcut-sidebar-width)')) throw Error('Resizable sidebar track missing');
 if (js.includes("hostname.className = 'shortcut-host'") || js.includes("hostname.textContent")) throw Error('Shortcut host text must not be rendered');
 if (css.includes('.shortcut-host')) throw Error('Obsolete shortcut host styling still present');
