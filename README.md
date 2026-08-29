@@ -17,6 +17,8 @@ The Todoist connection is optional. Connecting lets the extension read today’s
 
 Chrome’s `topSites` API imports frequently visited sites only. It cannot read Chrome’s protected built-in New Tab tiles.
 
+Drag shortcuts within a section to reorder them. Drop a shortcut on another section to move it there, with the insertion cue showing whether it will land before or after the target.
+
 ## Validate
 
 No package installation is required.

@@ -80,8 +80,13 @@ button, input, select { font: inherit; }
 .section-empty { border-left: 1px solid var(--line); margin: 8px 0 0; padding-left: 9px; }
 .shortcut { align-items: center; background: transparent; border: 0; border-radius: 4px; color: var(--ink); display: flex; min-height: 76px; min-width: 0; overflow: hidden; padding: 0; position: relative; transition: background-color .15s ease, box-shadow .15s ease, transform .15s ease; }
 .shortcut[draggable="true"] { cursor: grab; }
+.shortcut.is-dragging { cursor: grabbing; }
 .shortcut.is-dragging { opacity: .45; }
 .shortcut-section-grid.is-drop-target { background: rgba(104, 112, 90, .12); outline: 1px dashed var(--olive); outline-offset: 4px; }
+.shortcut.is-drop-target { background: rgba(104, 112, 90, .12); box-shadow: inset 0 0 0 1px rgba(104, 112, 90, .34); }
+.shortcut.is-drop-before::before, .shortcut.is-drop-after::after { background: var(--rust); border-radius: 999px; content: ""; height: 2px; left: 3px; position: absolute; right: 3px; z-index: 2; }
+.shortcut.is-drop-before::before { top: 0; }
+.shortcut.is-drop-after::after { bottom: 0; }
 .shortcut-link { align-items: center; color: inherit; display: flex; flex: 1; flex-direction: column; gap: 5px; justify-content: center; min-height: 100%; min-width: 0; overflow: hidden; padding: 9px 4px 6px; text-align: center; text-decoration: none; }
 .shortcut img, .shortcut-fallback { background: var(--paper-light); border-radius: 3px; flex: 0 0 25px; height: 25px; object-fit: contain; width: 25px; }
 .shortcut-fallback { align-items: center; background: var(--olive); color: var(--paper-light); display: flex; font-size: 10px; font-weight: 800; justify-content: center; }

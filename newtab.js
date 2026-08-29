@@ -126,10 +126,42 @@ function refreshShortcutSectionOptions(sections = currentShortcutModel.sections,
   }
   select.value = sections.some(section => section.id === selectedId) ? selectedId : DEFAULT_SECTION_ID;
 }
-function clearShortcutDragState() {
-  for (const element of document.querySelectorAll('.is-dragging, .is-drop-target')) {
-    element.classList.remove('is-dragging', 'is-drop-target');
+function clearShortcutDropState() {
+  for (const element of document.querySelectorAll('.is-drop-target, .is-drop-before, .is-drop-after')) {
+    element.classList.remove('is-drop-target', 'is-drop-before', 'is-drop-after');
   }
+}
+function clearShortcutDragState() {
+  clearShortcutDropState();
+  for (const element of document.querySelectorAll('.is-dragging')) element.classList.remove('is-dragging');
+}
+function shortcutDropBefore(event, grid, card) {
+  const rect = card.getBoundingClientRect();
+  const columnCount = getComputedStyle(grid).gridTemplateColumns.split(/\s+/).filter(Boolean).length;
+  return columnCount > 1 ? event.clientX < rect.left + rect.width / 2 : event.clientY < rect.top + rect.height / 2;
+}
+function reorderShortcut(model, shortcutId, targetSectionId, targetShortcutId = null, placeBefore = true) {
+  if (!model.sections.some(section => section.id === targetSectionId)) return null;
+  const sourceIndex = model.shortcuts.findIndex(item => item.id === shortcutId);
+  if (sourceIndex < 0 || targetShortcutId === shortcutId) return false;
+  if (targetShortcutId && !model.shortcuts.some(item => item.id === targetShortcutId && item.sectionId === targetSectionId)) return null;
+
+  const [shortcut] = model.shortcuts.splice(sourceIndex, 1);
+  let insertIndex = model.shortcuts.length;
+  if (targetShortcutId) {
+    const targetIndex = model.shortcuts.findIndex(item => item.id === targetShortcutId && item.sectionId === targetSectionId);
+    insertIndex = placeBefore ? targetIndex : targetIndex + 1;
+  } else {
+    const targetIndexes = model.shortcuts.reduce((indexes, item, index) => {
+      if (item.sectionId === targetSectionId) indexes.push(index);
+      return indexes;
+    }, []);
+    if (targetIndexes.length) insertIndex = targetIndexes[targetIndexes.length - 1] + 1;
+  }
+  const previousSectionId = shortcut.sectionId;
+  shortcut.sectionId = targetSectionId;
+  model.shortcuts.splice(insertIndex, 0, shortcut);
+  return previousSectionId !== targetSectionId || sourceIndex !== insertIndex;
 }
 function shortcutCard(item) {
   const itemName = typeof item.name === 'string' ? item.name : 'Untitled shortcut';
@@ -142,6 +174,7 @@ function shortcutCard(item) {
   const edit = document.createElement('button');
 
   card.className = 'shortcut';
+  card.dataset.shortcutId = String(item.id);
   card.draggable = true;
   link.href = itemUrl;
   link.className = 'shortcut-link';
@@ -167,7 +200,7 @@ function shortcutCard(item) {
   edit.addEventListener('click', () => openShortcut(item));
   card.addEventListener('dragstart', event => {
     event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.setData('text/plain', item.id);
+    event.dataTransfer.setData('text/plain', String(item.id));
     card.classList.add('is-dragging');
   });
   card.addEventListener('dragend', clearShortcutDragState);
@@ -214,26 +247,41 @@ function renderShortcuts(model) {
     grid.addEventListener('dragover', event => {
       event.preventDefault();
       event.dataTransfer.dropEffect = 'move';
-      grid.classList.add('is-drop-target');
+      const targetCard = event.target instanceof Element ? event.target.closest('.shortcut') : null;
+      const isCardTarget = targetCard?.parentElement === grid;
+      clearShortcutDropState();
+      if (isCardTarget) {
+        const placeBefore = shortcutDropBefore(event, grid, targetCard);
+        targetCard.classList.add('is-drop-target', placeBefore ? 'is-drop-before' : 'is-drop-after');
+      } else {
+        grid.classList.add('is-drop-target');
+      }
     });
     grid.addEventListener('dragleave', event => {
-      if (!grid.contains(event.relatedTarget)) grid.classList.remove('is-drop-target');
+      if (!grid.contains(event.relatedTarget)) clearShortcutDropState();
     });
     grid.addEventListener('drop', event => {
       event.preventDefault();
       const shortcutId = event.dataTransfer.getData('text/plain');
+      const targetCard = event.target instanceof Element ? event.target.closest('.shortcut') : null;
+      const isCardTarget = targetCard?.parentElement === grid;
+      const targetShortcutId = isCardTarget ? targetCard.dataset.shortcutId : null;
+      const placeBefore = isCardTarget && shortcutDropBefore(event, grid, targetCard);
       clearShortcutDragState();
       if (!shortcutId) return;
       queue(async () => {
         const latestModel = await readShortcutModel();
-        const shortcut = latestModel.shortcuts.find(item => item.id === shortcutId);
         const targetSectionExists = latestModel.sections.some(item => item.id === section.id);
         if (!targetSectionExists) {
           renderShortcuts(latestModel);
           return;
         }
-        if (!shortcut || shortcut.sectionId === section.id) return;
-        shortcut.sectionId = section.id;
+        const changed = reorderShortcut(latestModel, shortcutId, section.id, targetShortcutId, placeBefore);
+        if (changed === null) {
+          renderShortcuts(latestModel);
+          return;
+        }
+        if (!changed) return;
         await set(SHORTCUTS_KEY, latestModel);
         renderShortcuts(latestModel);
       });
