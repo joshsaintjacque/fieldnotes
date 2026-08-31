@@ -87,6 +87,9 @@ button, input, select { font: inherit; }
 .shortcut.is-drop-before::before, .shortcut.is-drop-after::after { background: var(--rust); border-radius: 999px; content: ""; height: 2px; left: 3px; position: absolute; right: 3px; z-index: 2; }
 .shortcut.is-drop-before::before { top: 0; }
 .shortcut.is-drop-after::after { bottom: 0; }
+.shortcut.is-drop-horizontal.is-drop-before::before, .shortcut.is-drop-horizontal.is-drop-after::after { bottom: 3px; height: auto; top: 3px; width: 2px; }
+.shortcut.is-drop-horizontal.is-drop-before::before { left: 0; right: auto; }
+.shortcut.is-drop-horizontal.is-drop-after::after { left: auto; right: 0; }
 .shortcut-link { align-items: center; color: inherit; display: flex; flex: 1; flex-direction: column; gap: 5px; justify-content: center; min-height: 100%; min-width: 0; overflow: hidden; padding: 9px 4px 6px; text-align: center; text-decoration: none; }
 .shortcut img, .shortcut-fallback { background: var(--paper-light); border-radius: 3px; flex: 0 0 25px; height: 25px; object-fit: contain; width: 25px; }
 .shortcut-fallback { align-items: center; background: var(--olive); color: var(--paper-light); display: flex; font-size: 10px; font-weight: 800; justify-content: center; }

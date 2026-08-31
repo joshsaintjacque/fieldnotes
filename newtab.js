@@ -127,18 +127,20 @@ function refreshShortcutSectionOptions(sections = currentShortcutModel.sections,
   select.value = sections.some(section => section.id === selectedId) ? selectedId : DEFAULT_SECTION_ID;
 }
 function clearShortcutDropState() {
-  for (const element of document.querySelectorAll('.is-drop-target, .is-drop-before, .is-drop-after')) {
-    element.classList.remove('is-drop-target', 'is-drop-before', 'is-drop-after');
+  for (const element of document.querySelectorAll('.is-drop-target, .is-drop-before, .is-drop-after, .is-drop-horizontal')) {
+    element.classList.remove('is-drop-target', 'is-drop-before', 'is-drop-after', 'is-drop-horizontal');
   }
 }
 function clearShortcutDragState() {
   clearShortcutDropState();
   for (const element of document.querySelectorAll('.is-dragging')) element.classList.remove('is-dragging');
 }
+function shortcutGridHasMultipleColumns(grid) {
+  return getComputedStyle(grid).gridTemplateColumns.split(/\s+/).filter(Boolean).length > 1;
+}
 function shortcutDropBefore(event, grid, card) {
   const rect = card.getBoundingClientRect();
-  const columnCount = getComputedStyle(grid).gridTemplateColumns.split(/\s+/).filter(Boolean).length;
-  return columnCount > 1 ? event.clientX < rect.left + rect.width / 2 : event.clientY < rect.top + rect.height / 2;
+  return shortcutGridHasMultipleColumns(grid) ? event.clientX < rect.left + rect.width / 2 : event.clientY < rect.top + rect.height / 2;
 }
 function reorderShortcut(model, shortcutId, targetSectionId, targetShortcutId = null, placeBefore = true) {
   if (!model.sections.some(section => section.id === targetSectionId)) return null;
@@ -253,6 +255,7 @@ function renderShortcuts(model) {
       if (isCardTarget) {
         const placeBefore = shortcutDropBefore(event, grid, targetCard);
         targetCard.classList.add('is-drop-target', placeBefore ? 'is-drop-before' : 'is-drop-after');
+        if (shortcutGridHasMultipleColumns(grid)) targetCard.classList.add('is-drop-horizontal');
       } else {
         grid.classList.add('is-drop-target');
       }
