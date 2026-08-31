@@ -44,7 +44,7 @@ if (js.includes("hostname.className = 'shortcut-host'") || js.includes("hostname
 if (css.includes('.shortcut-host')) throw Error('Obsolete shortcut host styling still present');
 for (const token of ['background: transparent', 'border: 0', 'flex-direction: column', 'text-align: center', 'text-overflow: ellipsis', 'background: rgba(164, 82, 54, .12)', 'box-shadow: inset 0 0 0 1px', '.shortcut:hover, .shortcut:focus-within', 'outline: 2px solid var(--rust)', '@media (hover: none), (pointer: coarse)', 'opacity: .55', '.shortcut:hover, .shortcut:focus-within { transform: none; }']) if (!css.includes(token)) throw Error(`Shortcut styling missing: ${token}`);
 if (css.includes('padding-right: 34px') || css.includes('minmax(130px')) throw Error('Obsolete horizontal shortcut spacing remains');
-if (!css.includes('.shortcut.is-dragging') || !css.includes('.shortcut-section-grid.is-drop-target') || !css.includes('.shortcut-section-grid:empty')) throw Error('Shortcut drag/drop state styling missing');
+if (!css.includes('.shortcut.is-dragging') || !css.includes('.shortcut-section-grid.is-drop-target') || !css.includes('.shortcut-section-grid:empty') || !css.includes('.shortcut.is-drop-horizontal.is-drop-before::before') || !css.includes('.shortcut.is-drop-horizontal.is-drop-after::after')) throw Error('Shortcut drag/drop state styling missing');
 
 for (const [pattern, label] of [
   [/chrome\.storage\.local/, 'local extension storage'],
@@ -143,7 +143,7 @@ for (const [pattern, label] of [
   [/shortcutDialogSession\s*===\s*dialogSession\s*&&\s*\$\('#shortcutDialog'\)\.open/, 'shortcut dialog close guard'], [/sectionDialogSession\s*===\s*dialogSession\s*&&\s*\$\('#sectionDialog'\)\.open/, 'section dialog close guard']
 ]) if (!pattern.test(js)) throw Error(`Concurrency or dialog safety behavior missing: ${label}`);
 for (const [pattern, label] of [
-  [/card\.draggable\s*=\s*true/, 'draggable shortcut cards'], [/card\.addEventListener\('dragstart'/, 'shortcut drag start'], [/card\.addEventListener\('dragend',\s*clearShortcutDragState\)/, 'shortcut drag cleanup'], [/grid\.addEventListener\('dragover'/, 'section grid drag target'], [/grid\.addEventListener\('drop'/, 'section grid drop target'], [/targetSectionExists/, 'stale section drop guard'], [/shortcut\.sectionId\s*===\s*section\.id\)\s*return/, 'same-section drop no-op'], [/shortcut\.sectionId\s*=\s*section\.id/, 'locked section move'], [/clearShortcutDragState\(\)/, 'drop visual-state cleanup']
+  [/card\.draggable\s*=\s*true/, 'draggable shortcut cards'], [/card\.dataset\.shortcutId/, 'shortcut drop identity'], [/card\.addEventListener\('dragstart'/, 'shortcut drag start'], [/card\.addEventListener\('dragend',\s*clearShortcutDragState\)/, 'shortcut drag cleanup'], [/function shortcutGridHasMultipleColumns/, 'multi-column drop direction'], [/function shortcutDropBefore/, 'before-or-after drop position'], [/grid\.addEventListener\('dragover'/, 'section grid drag target'], [/targetCard\?\.parentElement\s*===\s*grid/, 'card-level drop target'], [/grid\.addEventListener\('drop'/, 'section grid drop target'], [/targetSectionExists/, 'stale section drop guard'], [/function reorderShortcut/, 'shortcut reorder helper'], [/targetShortcutId/, 'shortcut drop anchor'], [/shortcut\.sectionId\s*=\s*targetSectionId/, 'locked section move'], [/clearShortcutDragState\(\)/, 'drop visual-state cleanup']
 ]) if (!pattern.test(js)) throw Error(`Shortcut drag/drop behavior missing: ${label}`);
 if (js.includes('shortcut"') && js.includes('<button')) throw Error('Potential nested shortcut button');
 if (js.includes("$('#searchForm')") || js.includes("$('#dayPart')")) throw Error('Removed DOM node still referenced by JavaScript');
@@ -204,7 +204,7 @@ if (JSON.stringify(actualIgnore) !== JSON.stringify(expectedIgnore)) throw Error
 if (!license.includes('MIT License') || !license.includes('Copyright (c) 2026 Josh Saint Jacque')) throw Error('MIT license is incomplete');
 for (const token of ['Open-Meteo', 'CAMS', 'CC BY 4.0', 'non-commercial', 'rate limited']) if (!notices.includes(token)) throw Error(`Third-party notice missing: ${token}`);
 for (const token of ['chrome.storage.local', 'Todoist', 'saved Today tasks', 'OAuth tokens', 'Open-Meteo', 'topSites', 'Reset location', 'Disconnect Todoist', 'Clear local data', 'Limited Use', 'analytics']) if (!privacy.includes(token)) throw Error(`Privacy policy missing: ${token}`);
-for (const token of ['dependency-free', 'Reset location', 'saves the last confirmed Today response', 'PRIVACY.md', 'THIRD_PARTY_NOTICES.md', 'MIT License']) if (!readme.includes(token)) throw Error(`README missing: ${token}`);
+for (const token of ['dependency-free', 'Reset location', 'saves the last confirmed Today response', 'Drag shortcuts within a section to reorder them', 'PRIVACY.md', 'THIRD_PARTY_NOTICES.md', 'MIT License']) if (!readme.includes(token)) throw Error(`README missing: ${token}`);
 if (js.includes('innerHTML')) throw Error('Dynamic innerHTML found');
 if (/client_secret|todoist[^\n]{0,30}(api[_-]?token|bearer\s+[a-z0-9_-]{12,})/i.test(js + html + manifestText)) throw Error('A Todoist secret appears to be hardcoded');
 
